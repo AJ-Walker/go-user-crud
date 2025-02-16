@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	uuid "github.com/satori/go.uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type User struct {
@@ -15,8 +17,8 @@ type User struct {
 }
 
 var users []User = []User{
-	{Id: "1", Name: "Abhay Jha", Email: "abhay.jha@gmail.com", Password: "pass123"},
-	{Id: "2", Name: "John Doe", Email: "john.doe@gmail.com", Password: "pass123"},
+	{Id: "c1823e28-89f4-40e3-b0d1-714ad098ac58", Name: "Abhay Jha", Email: "abhay.jha@gmail.com", Password: "$2a$10$BzpOx9bhqXEA6IyPKmg3fegp4M39eSAX7u.u.vFkiEAoJHWfvsjJS"},
+	{Id: "f2bf6e5a-13ca-4090-be5b-ec12df6f9109", Name: "John Doe", Email: "john.doe@gmail.com", Password: "$2a$10$KCjYT4N.GgJWz1RtgOKAA.fa9JaQYssBco6lp0FnB.NIid5eUJGWq"},
 }
 
 func main() {
@@ -66,11 +68,22 @@ func addUser(c *gin.Context) {
 		return
 	}
 
-	if body.Id == "" || body.Name == "" || body.Email == "" || body.Password == "" {
+	if body.Name == "" || body.Email == "" || body.Password == "" {
 		c.JSON(http.StatusBadRequest, response(false, nil, "fields cannot be empty"))
 		return
 	}
 
+	// unique id
+	body.Id = uuid.NewV4().String()
+
+	// hashed password
+	hashedPass, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, response(false, nil, "password hasing gone wrong"))
+		return
+	}
+
+	body.Password = string(hashedPass)
 	users = append(users, body)
 	c.JSON(http.StatusOK, response(true, nil, "user added."))
 }
@@ -89,6 +102,7 @@ func getUserById(c *gin.Context) {
 			c.JSON(http.StatusOK, response(true, user, "user found"))
 			return
 		}
+
 	}
 
 	c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
