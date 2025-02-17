@@ -16,6 +16,11 @@ type User struct {
 	Password string `json:"password"`
 }
 
+type Login struct {
+	Email    string `json:"email" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
 var users []User = []User{
 	{Id: "c1823e28-89f4-40e3-b0d1-714ad098ac58", Name: "Abhay Jha", Email: "abhay.jha@gmail.com", Password: "$2a$10$BzpOx9bhqXEA6IyPKmg3fegp4M39eSAX7u.u.vFkiEAoJHWfvsjJS"},
 	{Id: "f2bf6e5a-13ca-4090-be5b-ec12df6f9109", Name: "John Doe", Email: "john.doe@gmail.com", Password: "$2a$10$KCjYT4N.GgJWz1RtgOKAA.fa9JaQYssBco6lp0FnB.NIid5eUJGWq"},
@@ -35,6 +40,9 @@ func main() {
 	r.GET("/user/:id", getUserById)
 	r.PUT("/user/:id", updateUser)
 	r.DELETE("/user/:id", deleteUserById)
+
+	// auth
+	r.POST("/login", login)
 
 	r.Run("localhost:8080") // listen and serve on 0.0.0.0:8080
 }
@@ -63,7 +71,7 @@ func getUsers(c *gin.Context) {
 func addUser(c *gin.Context) {
 	var body User
 
-	if err := c.BindJSON(&body); err != nil {
+	if err := c.ShouldBind(&body); err != nil {
 		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured"))
 		return
 	}
@@ -119,7 +127,7 @@ func updateUser(c *gin.Context) {
 
 	var body User
 
-	if err := c.BindJSON(&body); err != nil {
+	if err := c.ShouldBind(&body); err != nil {
 		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured"))
 		return
 	}
@@ -166,4 +174,42 @@ func deleteUserById(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
+}
+
+// login
+func login(c *gin.Context) {
+	var loginBody Login
+
+	if err := c.ShouldBind(&loginBody); err != nil {
+		fmt.Println("bind loginBody", loginBody)
+		fmt.Println("bind error", err)
+		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured."))
+		return
+	}
+
+	if loginBody.Email == "" || loginBody.Password == "" {
+		c.JSON(http.StatusBadRequest, response(false, nil, "fields cannot be empty"))
+		return
+	}
+
+	// find user
+	for _, user := range users {
+		if user.Email == loginBody.Email {
+			// user found
+
+			// check password
+			if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginBody.Password)); err != nil {
+				fmt.Println(err)
+				c.JSON(http.StatusUnauthorized, response(false, nil, "unauthorized user."))
+				return
+			}
+
+			// if correct password
+			c.JSON(http.StatusOK, response(true, nil, "login success"))
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, response(false, nil, "user not found."))
+
 }
