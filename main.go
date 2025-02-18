@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -21,14 +22,24 @@ type Login struct {
 	Password string `json:"password" binding:"required"`
 }
 
-var users []User = []User{
-	{Id: "c1823e28-89f4-40e3-b0d1-714ad098ac58", Name: "Abhay Jha", Email: "abhay.jha@gmail.com", Password: "$2a$10$BzpOx9bhqXEA6IyPKmg3fegp4M39eSAX7u.u.vFkiEAoJHWfvsjJS"},
-	{Id: "f2bf6e5a-13ca-4090-be5b-ec12df6f9109", Name: "John Doe", Email: "john.doe@gmail.com", Password: "$2a$10$KCjYT4N.GgJWz1RtgOKAA.fa9JaQYssBco6lp0FnB.NIid5eUJGWq"},
-}
+var users []User
 
 func main() {
 	fmt.Println("lets go user crud api")
 
+	// env load
+	if err := godotenv.Load(); err != nil {
+		fmt.Println("env err: ", err)
+		return
+	}
+
+	// db conn
+	if err := DBConnAndPing(); err != nil {
+		fmt.Println("db err: ", err)
+		return
+	}
+
+	// gin router
 	r := gin.Default()
 
 	// healthcheck route
@@ -60,10 +71,16 @@ func response(status bool, data any, message string) gin.H {
 // getUsers
 func getUsers(c *gin.Context) {
 
-	if len(users) == 0 {
+	res, err := GetUsersDB()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("GetUsersDB err: %v", err)))
+		return
+	}
+
+	if len(res) == 0 {
 		c.JSON(http.StatusOK, response(false, nil, "users not found"))
 	} else {
-		c.JSON(http.StatusOK, response(true, users, "users fetched"))
+		c.JSON(http.StatusOK, response(true, res, "users fetched"))
 	}
 }
 
@@ -92,8 +109,31 @@ func addUser(c *gin.Context) {
 	}
 
 	body.Password = string(hashedPass)
-	users = append(users, body)
-	c.JSON(http.StatusOK, response(true, nil, "user added."))
+
+	// check if email already exists
+	resEmail, errEmail := GetUserByEmailDB(body.Email)
+	if errEmail != nil {
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("add user err: %v", err)))
+		return
+	}
+
+	if resEmail.Email == body.Email {
+		c.JSON(http.StatusBadRequest, response(false, nil, "email already exists"))
+		return
+	}
+
+	if err := AddUserDB(body); err != nil {
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("add user err: %v", err)))
+		return
+	}
+
+	res, err := GetUserByIdDB(body.Id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, response(false, nil, fmt.Sprintf("add user err: %v", err)))
+		return
+	}
+
+	c.JSON(http.StatusOK, response(true, res, "user added."))
 }
 
 // getUserById
@@ -105,15 +145,13 @@ func getUserById(c *gin.Context) {
 		return
 	}
 
-	for _, user := range users {
-		if user.Id == id {
-			c.JSON(http.StatusOK, response(true, user, "user found"))
-			return
-		}
-
+	res, err := GetUserByIdDB(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
+		return
 	}
 
-	c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
+	c.JSON(http.StatusOK, response(true, res, "user found"))
 }
 
 // updateUser
@@ -132,26 +170,23 @@ func updateUser(c *gin.Context) {
 		return
 	}
 
-	if body.Name == "" || body.Email == "" || body.Password == "" {
-		c.JSON(http.StatusBadRequest, response(false, body, "fields cannot be empty"))
+	if body.Name == "" {
+		c.JSON(http.StatusBadRequest, response(false, nil, "fields cannot be empty"))
 		return
 	}
 
-	for i, user := range users {
-		if user.Id == id {
-			// user found
-
-			users[i].Name = body.Name
-			users[i].Email = body.Email
-			users[i].Password = body.Password
-
-			c.JSON(http.StatusOK, response(true, users[i], "user updated."))
-			return
-
-		}
+	if err := UpdateUserDB(id, body); err != nil {
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("update user err: %v", err)))
+		return
 	}
 
-	c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
+	res, err := GetUserByIdDB(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, response(false, nil, "user not found."))
+		return
+	}
+
+	c.JSON(http.StatusOK, response(true, res, "user updated."))
 }
 
 // deleteUserById
@@ -163,17 +198,23 @@ func deleteUserById(c *gin.Context) {
 		return
 	}
 
-	for i, user := range users {
-		if user.Id == id {
-			// user found
-
-			users = append(users[0:i], users[i+1:]...)
-			c.JSON(http.StatusOK, response(true, nil, "user deleted."))
-			return
-		}
+	_, err := GetUserByIdDB(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
+		return
 	}
 
-	c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
+	res, err := DeleteUserDB(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("delete user err: %v", err)))
+		return
+	}
+
+	if res {
+		c.JSON(http.StatusOK, response(true, nil, "user deleted."))
+		return
+	}
+	c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("delete user err: %v", err)))
 }
 
 // login
