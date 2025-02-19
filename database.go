@@ -100,12 +100,12 @@ func GetUserByIdDB(id string) (UserDTO, error) {
 }
 
 // Get a single user by their Email from DB
-func GetUserByEmailDB(email string) (UserDTO, error) {
+func GetUserByEmailDB(email string) (User, error) {
 
-	var user UserDTO
-	row := db.QueryRow("SELECT user_id, name, email FROM users WHERE email = ?", email)
+	var user User
+	row := db.QueryRow("SELECT user_id, name, email, password FROM users WHERE email = ?", email)
 
-	if err := row.Scan(&user.Id, &user.Name, &user.Email); err != nil {
+	if err := row.Scan(&user.Id, &user.Name, &user.Email, &user.Password); err != nil {
 		if err == sql.ErrNoRows {
 			return user, err
 		}
