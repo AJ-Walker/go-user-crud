@@ -86,7 +86,7 @@ func getUsers(c *gin.Context) {
 func addUser(c *gin.Context) {
 	var body User
 
-	if err := c.ShouldBind(&body); err != nil {
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured"))
 		return
 	}
@@ -163,7 +163,7 @@ func updateUser(c *gin.Context) {
 
 	var body User
 
-	if err := c.ShouldBind(&body); err != nil {
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured"))
 		return
 	}
@@ -219,7 +219,7 @@ func deleteUserById(c *gin.Context) {
 func login(c *gin.Context) {
 	var loginBody Login
 
-	if err := c.ShouldBind(&loginBody); err != nil {
+	if err := c.ShouldBindJSON(&loginBody); err != nil {
 		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured."))
 		return
 	}
