@@ -22,8 +22,6 @@ type Login struct {
 	Password string `json:"password" binding:"required"`
 }
 
-var users []User
-
 func main() {
 	fmt.Println("lets go user crud api")
 
@@ -222,8 +220,6 @@ func login(c *gin.Context) {
 	var loginBody Login
 
 	if err := c.ShouldBind(&loginBody); err != nil {
-		fmt.Println("bind loginBody", loginBody)
-		fmt.Println("bind error", err)
 		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured."))
 		return
 	}
@@ -233,24 +229,18 @@ func login(c *gin.Context) {
 		return
 	}
 
-	// find user
-	for _, user := range users {
-		if user.Email == loginBody.Email {
-			// user found
-
-			// check password
-			if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginBody.Password)); err != nil {
-				fmt.Println(err)
-				c.JSON(http.StatusUnauthorized, response(false, nil, "unauthorized user."))
-				return
-			}
-
-			// if correct password
-			c.JSON(http.StatusOK, response(true, nil, "login success"))
-			return
-		}
+	res, err := GetUserByEmailDB(loginBody.Email)
+	if err != nil {
+		c.JSON(http.StatusNotFound, response(false, nil, "user not found"))
+		return
 	}
 
-	c.JSON(http.StatusNotFound, response(false, nil, "user not found."))
+	// check password
+	if err := bcrypt.CompareHashAndPassword([]byte(res.Password), []byte(loginBody.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, response(false, nil, "unauthorized user."))
+		return
+	}
 
+	// if correct password
+	c.JSON(http.StatusOK, response(true, nil, "login success"))
 }
