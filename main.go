@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -66,6 +67,31 @@ func healthcheck(c *gin.Context) {
 // response common func
 func response(status bool, data any, message string) gin.H {
 	return gin.H{"status": status, "data": data, "message": message}
+}
+
+// Generate JWT token
+func generateJwtToken() (string, error) {
+	log.Print("Inside generateJwtToken")
+	secretKey := os.Getenv("JWT_SECRET_KEY")
+	log.Printf(secretKey)
+
+	// claims := jwt.Claims{
+
+	// }
+
+	// token := jwt.NewWithClaims(jwt.SigningMethodHS256,)
+
+	return "", nil
+}
+
+// Validate JWT token
+func validateJwtToken() (bool, error) {
+	log.Print("Inside validateJwtToken")
+	secretKey := os.Getenv("JWT_SECRET_KEY")
+	log.Printf(secretKey)
+
+	return false, nil
+
 }
 
 // getUsers
