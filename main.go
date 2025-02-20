@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,18 +24,18 @@ type Login struct {
 }
 
 func main() {
-	fmt.Println("lets go user crud api")
+	// Set log flags (adds timestamp)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	log.Print("lets go user crud api")
 
 	// env load
 	if err := godotenv.Load(); err != nil {
-		fmt.Println("env err: ", err)
-		return
+		log.Fatalf("env err: %v", err)
 	}
 
 	// db conn
 	if err := DBConnAndPing(); err != nil {
-		fmt.Println("db err: ", err)
-		return
+		log.Fatal(err)
 	}
 
 	// gin router
@@ -58,6 +59,7 @@ func main() {
 
 // healthcheck func
 func healthcheck(c *gin.Context) {
+	log.Print("Inside healthcheck")
 	c.JSON(http.StatusOK, response(true, nil, "healthcheck works.. :)"))
 }
 
@@ -68,26 +70,30 @@ func response(status bool, data any, message string) gin.H {
 
 // getUsers
 func getUsers(c *gin.Context) {
-
+	log.Print("Inside getUsers")
 	res, err := GetUsersDB()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("GetUsersDB err: %v", err)))
+		log.Printf("getUsers: %v", err)
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("getUsers: %v", err)))
 		return
 	}
 
 	if len(res) == 0 {
+		log.Printf("Users list is empty")
 		c.JSON(http.StatusOK, response(false, nil, "users not found"))
 	} else {
+		log.Printf("users found")
 		c.JSON(http.StatusOK, response(true, res, "users fetched"))
 	}
 }
 
 // addUser
 func addUser(c *gin.Context) {
+	log.Print("Inside addUser")
 	var body User
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured"))
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("addUser: %v", err)))
 		return
 	}
 
@@ -102,7 +108,7 @@ func addUser(c *gin.Context) {
 	// hashed password
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, "password hasing gone wrong"))
+		c.JSON(http.StatusBadRequest, response(false, nil, "password hashing gone wrong"))
 		return
 	}
 
@@ -111,7 +117,7 @@ func addUser(c *gin.Context) {
 	// check if email already exists
 	resEmail, errEmail := GetUserByEmailDB(body.Email)
 	if errEmail != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("add user err: %v", err)))
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("addUser: %v", err)))
 		return
 	}
 
@@ -121,21 +127,22 @@ func addUser(c *gin.Context) {
 	}
 
 	if err := AddUserDB(body); err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("add user err: %v", err)))
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("addUser: %v", err)))
 		return
 	}
 
 	res, err := GetUserByIdDB(body.Id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, response(false, nil, fmt.Sprintf("add user err: %v", err)))
+		c.JSON(http.StatusNotFound, response(false, nil, fmt.Sprintf("addUser: %v", err)))
 		return
 	}
 
-	c.JSON(http.StatusOK, response(true, res, "user added."))
+	c.JSON(http.StatusCreated, response(true, res, "user added."))
 }
 
 // getUserById
 func getUserById(c *gin.Context) {
+	log.Print("Inside getUserById")
 	id := c.Param("id")
 
 	if id == "" {
@@ -154,6 +161,7 @@ func getUserById(c *gin.Context) {
 
 // updateUser
 func updateUser(c *gin.Context) {
+	log.Print("Inside updateUser")
 	id := c.Param("id")
 
 	if id == "" {
@@ -164,7 +172,7 @@ func updateUser(c *gin.Context) {
 	var body User
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured"))
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("updateUser: %v", err)))
 		return
 	}
 
@@ -174,7 +182,7 @@ func updateUser(c *gin.Context) {
 	}
 
 	if err := UpdateUserDB(id, body); err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("update user err: %v", err)))
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("updateUser: %v", err)))
 		return
 	}
 
@@ -189,6 +197,7 @@ func updateUser(c *gin.Context) {
 
 // deleteUserById
 func deleteUserById(c *gin.Context) {
+	log.Print("Inside deleteUserById")
 	id := c.Param("id")
 
 	if id == "" {
@@ -204,7 +213,7 @@ func deleteUserById(c *gin.Context) {
 
 	res, err := DeleteUserDB(id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("delete user err: %v", err)))
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("deleteUserById: %v", err)))
 		return
 	}
 
@@ -212,15 +221,16 @@ func deleteUserById(c *gin.Context) {
 		c.JSON(http.StatusOK, response(true, nil, "user deleted."))
 		return
 	}
-	c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("delete user err: %v", err)))
+	c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("deleteUserById: %v", err)))
 }
 
 // login
 func login(c *gin.Context) {
+	log.Print("Inside login")
 	var loginBody Login
 
 	if err := c.ShouldBindJSON(&loginBody); err != nil {
-		c.JSON(http.StatusBadRequest, response(false, nil, "some error occured."))
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("login: %v", err)))
 		return
 	}
 
