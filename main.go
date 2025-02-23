@@ -1,11 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -21,6 +26,11 @@ type User struct {
 type Login struct {
 	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
+}
+
+type CustomClaims struct {
+	UserId string `json:"userId"`
+	jwt.RegisteredClaims
 }
 
 func main() {
@@ -44,17 +54,65 @@ func main() {
 	// healthcheck route
 	r.GET("/healthcheck", healthcheck)
 
-	// users route
-	r.GET("/users", getUsers)
-	r.POST("/user", addUser)
-	r.GET("/user/:id", getUserById)
-	r.PUT("/user/:id", updateUser)
-	r.DELETE("/user/:id", deleteUserById)
-
 	// auth
 	r.POST("/login", login)
 
+	userRouter := r.Group("/users")
+	userRouter.Use(AuthMiddleware())
+	// users route
+	userRouter.GET("", getUsers)
+	userRouter.POST("", addUser)
+	userRouter.GET("/:id", getUserById)
+	userRouter.PUT("/:id", updateUser)
+	userRouter.DELETE("/:id", deleteUserById)
+
 	r.Run("localhost:8080") // listen and serve on 0.0.0.0:8080
+}
+
+// AuthMiddleware handles JWT token validation
+func AuthMiddleware() gin.HandlerFunc {
+	log.Print("Inside AuthMiddleware")
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		log.Print(authHeader)
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusBadRequest, response(false, nil, "Authorization header missing."))
+			return
+		}
+
+		if strings.Split(authHeader, " ")[0] != "Bearer" {
+			c.AbortWithStatusJSON(http.StatusBadRequest, response(false, nil, "Wrong type of authorization header."))
+			return
+		}
+
+		jwtToken := strings.Split(authHeader, " ")[1]
+		log.Print(jwtToken)
+
+		validToken, err := validateJwtToken(jwtToken)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, response(false, nil, fmt.Sprintf("%v", err)))
+			return
+		}
+
+		if claims, ok := validToken.Claims.(*CustomClaims); ok {
+			log.Printf("User Id: %v", claims.UserId)
+			log.Printf("Email: %v", claims.Issuer)
+
+			user, err := GetUserByIdDB(claims.UserId)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusNotFound, response(false, nil, "user not found"))
+				return
+			}
+
+			if user.Email != claims.Issuer {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, response(false, nil, "wrong data provided."))
+				return
+			}
+		}
+
+		c.Next()
+
+	}
 }
 
 // healthcheck func
@@ -66,6 +124,49 @@ func healthcheck(c *gin.Context) {
 // response common func
 func response(status bool, data any, message string) gin.H {
 	return gin.H{"status": status, "data": data, "message": message}
+}
+
+// Generate JWT token
+func generateJwtToken(user User) (string, error) {
+	log.Print("Inside generateJwtToken")
+	secretKey := os.Getenv("JWT_SECRET_KEY")
+
+	claims := CustomClaims{
+		user.Id,
+		jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)), // token valid for 1 hour
+			Issuer:    user.Email,
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	jwtToken, err := token.SignedString([]byte(secretKey))
+	if err != nil {
+		return "", err
+	}
+
+	return jwtToken, nil
+}
+
+// Validate JWT token
+func validateJwtToken(jwtToken string) (*jwt.Token, error) {
+	log.Print("Inside validateJwtToken")
+	secretKey := os.Getenv("JWT_SECRET_KEY")
+
+	token, err := jwt.ParseWithClaims(jwtToken, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("bad signed method received")
+		}
+		return []byte(secretKey), nil
+	})
+
+	if err != nil {
+		log.Printf("validateJwtToken err: %v", err)
+		return nil, err
+	}
+	log.Printf("validateJwtToken: token valid")
+	return token, nil
 }
 
 // getUsers
@@ -251,6 +352,15 @@ func login(c *gin.Context) {
 		return
 	}
 
+	jwtToken, err := generateJwtToken(res)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, response(false, nil, fmt.Sprintf("token error: %v", err)))
+		return
+	}
+
+	data := make(map[string]string, 0)
+	data["token"] = jwtToken
+
 	// if correct password
-	c.JSON(http.StatusOK, response(true, nil, "login success"))
+	c.JSON(http.StatusOK, response(true, data, "login success"))
 }
