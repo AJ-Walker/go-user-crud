@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -83,6 +84,34 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, response(false, nil, "Wrong type of authorization header."))
 			return
 		}
+
+		jwtToken := strings.Split(authHeader, " ")[1]
+		log.Print(jwtToken)
+
+		validToken, err := validateJwtToken(jwtToken)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, response(false, nil, fmt.Sprintf("%v", err)))
+			return
+		}
+
+		if claims, ok := validToken.Claims.(*CustomClaims); ok {
+			log.Printf("User Id: %v", claims.UserId)
+			log.Printf("Email: %v", claims.Issuer)
+
+			user, err := GetUserByIdDB(claims.UserId)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusNotFound, response(false, nil, "user not found"))
+				return
+			}
+
+			if user.Email != claims.Issuer {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, response(false, nil, "wrong data provided."))
+				return
+			}
+		}
+
+		c.Next()
+
 	}
 }
 
@@ -105,7 +134,7 @@ func generateJwtToken(user User) (string, error) {
 	claims := CustomClaims{
 		user.Id,
 		jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)), // token valid for 1 hour
 			Issuer:    user.Email,
 		},
 	}
@@ -121,13 +150,23 @@ func generateJwtToken(user User) (string, error) {
 }
 
 // Validate JWT token
-func validateJwtToken() (bool, error) {
+func validateJwtToken(jwtToken string) (*jwt.Token, error) {
 	log.Print("Inside validateJwtToken")
 	secretKey := os.Getenv("JWT_SECRET_KEY")
-	log.Printf(secretKey)
 
-	return false, nil
+	token, err := jwt.ParseWithClaims(jwtToken, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("bad signed method received")
+		}
+		return []byte(secretKey), nil
+	})
 
+	if err != nil {
+		log.Printf("validateJwtToken err: %v", err)
+		return nil, err
+	}
+	log.Printf("validateJwtToken: token valid")
+	return token, nil
 }
 
 // getUsers
